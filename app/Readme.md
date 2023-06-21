@@ -8,8 +8,8 @@
 
 **Output**
 
-![img.png](app/img.png)
+![img.png](img.png)
  
 *Default CategoryID is 2*
 
-![img_1.png](app/img_1.png)
+![img_1.png](img_1.png)
