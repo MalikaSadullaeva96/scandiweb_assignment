@@ -1,74 +1,139 @@
 <?php
-//setup:upgrade goes through the modules and checks whether there is any schema or data patches it needs to execute
-namespace Scandiweb\Test\Setup\Patch\Data; //tells Magento that this .php os the part og Scandiweb_Test module;
+declare(strict_types=1);
+namespace Scandiweb\Test\Setup\Patch\Data;
 
-//changes or updates to db during module installation or upgrade
 use Magento\Framework\Setup\Patch\DataPatchInterface;
-//allows to create tables, insert data, modify schema during module installation or upgrade-->
 use Magento\Framework\Setup\ModuleDataSetupInterface;
-//allows to work with product models:change quantity, color, etc
 use Magento\Catalog\Model\ProductFactory;
-//assign/remove products from category
 use Magento\Catalog\Api\CategoryLinkManagementInterface;
-//for area code
 use Magento\Framework\App\State as AppState;
-
+use Magento\Catalog\Api\ProductRepositoryInterface;
+use Magento\InventoryApi\Api\Data\SourceItemInterfaceFactory;
+use Magento\InventoryApi\Api\SourceItemsSaveInterface;
+use Magento\Catalog\Model\Product\Visibility;
+use Magento\Catalog\Model\Product\Attribute\Source\Status;
+use Magento\Catalog\Model\Product\Type;
+use Magento\Eav\Setup\EavSetup;
+use Magento\Catalog\Model\Product;
 
 class CreateProduct implements DataPatchInterface
 {
-    private $moduleDataSetup;
-    private $productFactory;
-    private $storeManager;
-    private $categoryLinkManagement;
-    private $appState;
+    /**
+     * @var ModuleDataSetupInterface
+     */
+    protected $moduleDataSetup;
+    /**
+     * @var ProductFactory
+     */
+    protected $productFactory;
+    /**
+     * @var CategoryLinkManagementInterface
+     */
+    protected $categoryLinkManagement;
+    /**
+     * @var AppState
+     */
+    protected $appState;
+    /**
+     * @var ProductRepositoryInterface
+     */
+    protected $productRepository;
+    /**
+     * @var SourceItemInterfaceFactory
+     */
+    protected $sourceItemInterfaceFactory;
+    /**
+     * @var SourceItemsSaveInterface
+     */
+    protected $sourceItemsSave;
+    /**
+     * @var EavSetup
+     */
+    protected $eavSetup;
 
-
-    //dependency injection
+    /**
+     * @param ModuleDataSetupInterface $moduleDataSetup
+     * @param ProductFactory $productFactory
+     * @param CategoryLinkManagementInterface $categoryLinkManagement
+     * @param AppState $appState
+     * @param ProductRepositoryInterface $productRepository
+     * @param SourceItemInterfaceFactory $sourceItemInterfaceFactory
+     * @param SourceItemsSaveInterface $sourceItemsSave
+     * @param EavSetup $eavSetup
+     */
     public function __construct(
         ModuleDataSetupInterface $moduleDataSetup,
         ProductFactory $productFactory,
         CategoryLinkManagementInterface $categoryLinkManagement,
-        AppState $appState
+        AppState $appState,
+        ProductRepositoryInterface $productRepository,
+        SourceItemInterfaceFactory $sourceItemInterfaceFactory,
+        SourceItemsSaveInterface $sourceItemsSave,
+        EavSetup $eavSetup
     ){
         $this->moduleDataSetup = $moduleDataSetup;
         $this->productFactory = $productFactory;
         $this->categoryLinkManagement = $categoryLinkManagement;
         $this->appState = $appState;
+        $this->productRepository = $productRepository;
+        $this->sourceItemInterfaceFactory = $sourceItemInterfaceFactory;
+        $this->sourceItemsSave = $sourceItemsSave;
+        $this->eavSetup = $eavSetup;
     }
 
-    public function apply(){
+    /**
+     * @return void
+     * @throws \Exception
+     */
+    public function apply(): void
+    {
+        $this->appState->emulateAreaCode('adminhtml', [$this, 'execute']);
+    }
 
-        //check whether area code is set
-        try {
-            $this->appState->getAreaCode();
-        } catch (\Magento\Framework\Exception\LocalizedException $e) {
-            $this->appState->setAreaCode('adminhtml');
-        }
+    /**
+     * @return void
+     * @throws \Magento\Framework\Exception\CouldNotSaveException
+     * @throws \Magento\Framework\Exception\InputException
+     * @throws \Magento\Framework\Exception\LocalizedException
+     * @throws \Magento\Framework\Exception\StateException
+     * @throws \Magento\Framework\Validation\ValidationException
+     */
+    public function execute(): void
+    {
 
-        //start a setup process
-        $this->moduleDataSetup->startSetup();
-        //create the product
+        $attributeSetId = $this->eavSetup->getAttributeSetId(Product::ENTITY, 'Default');
         $product = $this->productFactory->create();
-        $product->setName('Scandiweb Test');
-        $product->setSku('scandiweb_test');
-        $product->setPrice(100);
-        $product->setTypeId('simple');
-        $product->setVisibility(4);
-        $product->setStatus(1); //1-enabled
-        $categoryId = ['2'];
-        $this->categoryLinkManagement->assignProductToCategories($product->getSku(), $categoryId);
+        $product->setTypeId(Type::TYPE_SIMPLE)
+            ->setAttributeSetId($attributeSetId)
+            ->setName('Scandiweb Test')
+            ->setSku('scandiweb_test')
+            ->setPrice(100)
+            ->setVisibility(Visibility::VISIBILITY_BOTH)
+            ->setStatus(Status::STATUS_ENABLED);
+        $product = $this->productRepository->save($product);
 
-        $this->moduleDataSetup->endSetup();
+        $sourceItem = $this->sourceItemInterfaceFactory->create();
+        $sourceItem->setSourceCode('default');
+        $sourceItem->setSku($product->getSku());
+        $sourceItem->setQuantity(100);
+        $sourceItem->setStatus(1);
+        $this->sourceItemsSave->execute([$sourceItem]);
+
     }
 
-    public function  getAliases()
+    /**
+     * @return array|string[]
+     */
+    public function getAliases(): array
     {
         return [];
     }
 
-    public static function getDependencies()
+    /**
+     * @return array|string[]
+     */
+    public static function getDependencies(): array
     {
         return [];
     }
-
 }
